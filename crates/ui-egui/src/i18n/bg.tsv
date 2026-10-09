@@ -2041,4 +2041,5 @@ comment menu	Edit	Редактирай
 	Redo {action}	Повтори {action}
 signature pad	Type	Въвеждане
 action wizard	Start	Старт
-	Margins (in)	Полета (in)
+	Margins	Полета
+	For page sizes and margins.	За размери на страници и полета.
