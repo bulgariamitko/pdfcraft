@@ -34,8 +34,8 @@ garbage-collected file (callers check the print permission).
 
 `spool` talks to CUPS (`lpstat -p -d`, `lp` with copies, collation, duplex and monochrome
 options). The job is piped to `lp` on stdin and never written to a temp file, where another
-local user could read or swap it. On Windows the printers come from WMI (`Get-CimInstance Win32_Printer`
-through PowerShell) and the sheets are rasterized at 200 dpi and streamed over stdin to a PowerShell
+local user could read or swap it. On Windows the printers come from the spooler (`PrinterSettings.InstalledPrinters`
+through PowerShell) and the sheets are rasterized at 300 dpi and streamed over stdin to a PowerShell
 `System.Drawing.Printing.PrintDocument` job, so they print on any driver, not only PDF-capable ones; copies,
 collation, duplex and grayscale go in as `PDFCRAFT_*` environment variables, never as script text. Other
 platforms report that printing to a printer isn't available yet; the print-ready PDF can always be saved.

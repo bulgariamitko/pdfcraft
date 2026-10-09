@@ -388,7 +388,7 @@ pub fn tools() -> Vec<ToolDef> {
             }),
             &["doc"],
         )),
-        t("printers", "List printers", "The printers the system's print spooler knows (CUPS on macOS and Linux), with the default marked.").ro().with(schema(json!({}), &[])),
+        t("printers", "List printers", "The printers the system's print spooler knows (CUPS on macOS and Linux, the Windows spooler on Windows), with the default marked.").ro().with(schema(json!({}), &[])),
         t(
             "doc_print",
             "Print",

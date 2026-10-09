@@ -1,6 +1,6 @@
 //! The system print spooler. On macOS and Linux this is CUPS: printers come from `lpstat`, jobs
 //! are piped to `lp` with the job options (copies, collation, duplex, colour). On Windows the
-//! printers come from WMI and the sheets are rasterized and drawn through .NET's `PrintDocument`
+//! printers come from the spooler (`InstalledPrinters`) and the sheets are rasterized and drawn through .NET's `PrintDocument`
 //! (see `WIN_PRINT_SCRIPT`), which works with every driver, not only PDF-capable ones. Other
 //! platforms report that printing isn't available yet; the print-ready PDF can still be saved.
 
@@ -184,12 +184,16 @@ pub(crate) fn job_message(stdout: &[u8]) -> String {
 
 /// Resolution the sheets are rasterized at for a Windows print job.
 #[cfg(any(test, windows))]
-const WIN_DPI: f32 = 200.0;
+const WIN_DPI: f32 = 300.0;
 
 /// Printers and which one is the default, one per line as `True<TAB>Name` (`False` for the rest).
+/// `InstalledPrinters` asks the spooler directly; WMI's `Win32_Printer` returns the same list but
+/// takes about five times as long, and the Print dialog waits for it.
 #[cfg(windows)]
 const WIN_PRINTERS_SCRIPT: &str = "[Console]::OutputEncoding=[Text.Encoding]::UTF8; \
-Get-CimInstance Win32_Printer | ForEach-Object { \"$($_.Default)`t$($_.Name)\" }";
+Add-Type -AssemblyName System.Drawing; \
+$d = (New-Object System.Drawing.Printing.PrinterSettings).PrinterName; \
+foreach ($n in [System.Drawing.Printing.PrinterSettings]::InstalledPrinters) { \"$($n -eq $d)`t$n\" }";
 
 /// Parse `WIN_PRINTERS_SCRIPT`'s output.
 pub fn parse_win_printers(out: &str) -> Vec<Printer> {

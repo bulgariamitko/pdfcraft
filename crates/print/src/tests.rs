@@ -401,7 +401,7 @@ fn windows_print_stream_carries_every_sheet_as_bgra() {
     for _ in 0..3 {
         let (w, h, wh, hh) = (int(at), int(at + 4), int(at + 8), int(at + 12));
         sizes.push((wh, hh));
-        assert_eq!((wh, hh), ((w + 1) / 2, (h + 1) / 2), "200 dpi pixels to 1/100 inch");
+        assert_eq!((wh, hh), (((w * 100) as f64 / 300.0).round() as i32, ((h * 100) as f64 / 300.0).round() as i32), "300 dpi pixels to 1/100 inch");
         let px = &out[at + 16..at + 16 + (w * h * 4) as usize];
         assert!(px.as_chunks::<4>().0.iter().all(|p| p[3] == 255), "opaque");
         assert!(px.as_chunks::<4>().0.iter().any(|p| p[0] < 128), "the page text is drawn");
