@@ -2043,3 +2043,9 @@ signature pad	Type	Въвеждане
 action wizard	Start	Старт
 	Margins	Полета
 	For page sizes and margins.	За размери на страници и полета.
+	Opens the printer driver's preferences. They are saved for every print from this computer; the copies, two-sided, grayscale and paper chosen here still apply.	Отваря предпочитанията на драйвера на принтера. Те се запазват за всеки печат от този компютър; избраните тук копия, двустранен печат, сива скала и хартия продължават да важат.
+	The printer driver's own settings for this print: paper tray, paper type, finishing and more.	Собствените настройки на драйвера на принтера за този печат: тава за хартия, вид хартия, довършителни операции и други.
+	Couldn't open the printer's preferences: {e}	Неуспешно отваряне на предпочитанията на принтера: {e}
+	Printer properties	Свойства на принтера
+	Reset to printer defaults	Върни настройките по подразбиране на принтера
+	This printer offers no settings of its own.	Този принтер няма собствени настройки.
