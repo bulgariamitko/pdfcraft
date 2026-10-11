@@ -12,7 +12,16 @@ fn bad(m: impl Into<String>) -> ToolError {
 
 impl Automation {
     pub(crate) fn printers(&self) -> Result<Value> {
-        let list: Vec<Value> = spool::printers().into_iter().map(|p| json!({ "name": p.name, "default": p.default })).collect();
+        let list: Vec<Value> = spool::printers()
+            .into_iter()
+            .map(|p| {
+                let mut v = json!({ "name": p.name, "default": p.default });
+                if let Some(two_sided) = p.two_sided {
+                    v["two_sided"] = json!(two_sided);
+                }
+                v
+            })
+            .collect();
         Ok(json!({ "count": list.len(), "printers": list }))
     }
 

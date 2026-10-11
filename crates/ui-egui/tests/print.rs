@@ -205,7 +205,10 @@ fn printers_listed_in_the_background_preselect_the_default_unless_one_was_picked
     let wait = gate.clone();
     h.state_mut().printer_source = Some(Arc::new(move || {
         let _open = wait.lock();
-        vec![Printer { name: "Office".into(), default: false }, Printer { name: "Front Desk".into(), default: true }]
+        vec![
+            Printer { name: "Office".into(), default: false, two_sided: None },
+            Printer { name: "Front Desk".into(), default: true, two_sided: None },
+        ]
     }));
     assert!(h.state_mut().execute("print.dialog"));
     h.run_steps(2);
@@ -281,4 +284,30 @@ fn custom_page_cannot_silently_match_a_standard_paper() {
     h.run_steps(3);
     assert_eq!(h.state().print_draft.paper, before.paper);
     assert_eq!(h.state().print_draft.size, before.size);
+}
+
+/// A driver Windows reports without two-sided printing keeps its own setting whatever Two-sided
+/// says (some print both sides with it Off), so the dialog says where to change it.
+#[test]
+fn a_printer_without_two_sided_printing_points_to_its_properties() {
+    use pdfcraft_engine::print::spool::Printer;
+    let mut h = harness();
+    h.state_mut().printer_source = Some(std::sync::Arc::new(|| {
+        vec![
+            Printer { name: "Office PCL".into(), default: true, two_sided: Some(true) },
+            Printer { name: "Office PS".into(), default: false, two_sided: Some(false) },
+        ]
+    }));
+    assert!(h.state_mut().execute("print.dialog"));
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while h.state().print_draft.printers.is_empty() && std::time::Instant::now() < deadline {
+        h.run_steps(1);
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    h.run_steps(2);
+    let note = "doesn't take two-sided settings";
+    assert!(h.query_by_label_contains(note).is_none(), "a driver that prints two-sided as asked");
+    h.state_mut().print_draft.printer = Some("Office PS".into());
+    h.run_steps(2);
+    h.get_by_label_contains(note);
 }

@@ -617,6 +617,13 @@ pub(crate) fn body(
                 });
                 ui.end_row();
             });
+            // Windows says which drivers can't print two-sided as they're asked; they keep their
+            // own setting, even when Two-sided is Off.
+            if let Some(p) = d.printers.iter().find(|p| d.printer.as_ref() == Some(&p.name))
+                && p.two_sided == Some(false)
+            {
+                ui.label(egui::RichText::new(tl!("This printer's driver doesn't take two-sided settings from other programs, so its own setting applies. Change it in Properties…")).small().color(t.text_muted));
+            }
             if let Some(e) = &d.driver_error {
                 ui.label(egui::RichText::new(crate::i18n::fmt(tl!("Couldn't open the printer's preferences: {e}"), &[("e", e)])).small().color(t.text_muted));
             }

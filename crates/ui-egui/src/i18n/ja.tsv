@@ -2246,3 +2246,4 @@ scroll speed	Fast	速い
 	Original	オリジナル
 	Greyscale	グレースケール
 	Black and white	白黒
+	This printer's driver doesn't take two-sided settings from other programs, so its own setting applies. Change it in Properties…	このプリンターのドライバーは他のプログラムからの両面印刷の設定を受け付けないため、ドライバー自身の設定が使われます。変更先: プロパティ…

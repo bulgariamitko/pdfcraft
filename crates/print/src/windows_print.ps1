@@ -97,9 +97,11 @@ if ($env:PDFCRAFT_PRINT_PRINTER) {
 }
 $settings.Copies = [Math]::Min(32767, [Math]::Max(1, [int]$env:PDFCRAFT_PRINT_COPIES))
 $settings.Collate = ($env:PDFCRAFT_PRINT_COLLATE -eq '1')
+# DEVMODE's names are about the binding edge of a portrait page: Vertical (DMDUP_VERTICAL)
+# binds on the long edge, Horizontal (DMDUP_HORIZONTAL) on the short edge.
 $settings.Duplex = switch ($env:PDFCRAFT_PRINT_DUPLEX) {
-    'long-edge' { [System.Drawing.Printing.Duplex]::Horizontal }
-    'short-edge' { [System.Drawing.Printing.Duplex]::Vertical }
+    'long-edge' { [System.Drawing.Printing.Duplex]::Vertical }
+    'short-edge' { [System.Drawing.Printing.Duplex]::Horizontal }
     default { [System.Drawing.Printing.Duplex]::Simplex }
 }
 if ($env:PDFCRAFT_PRINT_GRAYSCALE -eq '1') { $printer.DefaultPageSettings.Color = $false }

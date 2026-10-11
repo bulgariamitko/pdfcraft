@@ -2245,3 +2245,4 @@ scroll speed	Fast	Gyors
 	Original	Eredeti
 	Greyscale	Szürkeárnyalatos
 	Black and white	Fekete-fehér
+	This printer's driver doesn't take two-sided settings from other programs, so its own setting applies. Change it in Properties…	A nyomtató illesztőprogramja nem fogadja el más programoktól a kétoldalas nyomtatás beállítását, ezért a saját beállítása érvényes. Módosítás: Tulajdonságok…
