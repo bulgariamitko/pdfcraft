@@ -47,7 +47,7 @@ fn render(bytes: Vec<u8>, side: u32) -> Result<Thumbnail, String> {
         return Err(format!("the first page has an invalid size ({w}×{h} pt)"));
     }
     let scale = side as f32 / longest;
-    let page = renderer.render(RenderRequest { page: 0, kind: RequestKind::Pixels, tile: None, scale, tag: 0, preview: true });
+    let page = renderer.render(RenderRequest { page: 0, kind: RequestKind::Pixels, tile: None, scale, tag: 0 });
     if let Some(e) = page.error {
         return Err(e);
     }
