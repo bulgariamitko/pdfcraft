@@ -795,22 +795,10 @@ fn dialogs(app: &mut PdfCraftApp, ctx: &egui::Context) {
                 );
                 let view = &mut app.views[i];
                 view.queue_print_previews(&rasters);
-                // Taller than a laptop's window with Properties… open: scroll rather than run off the
-                // screen, where its printer row and Print button could no longer be reached.
-                let max = (ui.ctx().content_rect().height() - 120.0).max(200.0);
-                let (go, cancel) = egui::ScrollArea::vertical()
-                    .id_salt("print-dialog")
-                    .max_height(max)
-                    // The centred modal otherwise settles at whatever height it had when it started
-                    // scrolling, far shorter than the window.
-                    .min_scrolled_height(max)
-                    .show(ui, |ui| {
-                        crate::print_ui::body(ui, &mut app.print_draft, &t, &sizes, &labels, &mut |p| {
-                            view.need_thumbnail(p, true);
-                            view.page_preview(p)
-                        })
-                    })
-                    .inner;
+                let (go, cancel) = crate::print_ui::body(ui, &mut app.print_draft, &t, &sizes, &labels, &mut |p| {
+                    view.need_thumbnail(p, true);
+                    view.page_preview(p)
+                });
                 print_go = go;
                 close = go || cancel;
                 return;

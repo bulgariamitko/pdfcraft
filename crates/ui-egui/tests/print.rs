@@ -235,6 +235,9 @@ fn print_dialog_shows_the_printer_driver_options() {
     {
         let d = &mut h.state_mut().print_draft;
         d.printer = Some("Test_Queue".into());
+        // A chosen paper, so this machine's real default printer (and its paper) doesn't matter.
+        d.paper = 0;
+        d.paper_picked = true;
         d.driver_options = Some(("Test_Queue".into(), vec![tray]));
         d.driver_choices.insert("InputSlot".into(), "Tray2".into());
         d.show_driver_options = true;
