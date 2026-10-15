@@ -68,6 +68,10 @@ pub struct PrintDraft {
     pub orientation: Orientation,
     pub content: Content,
     pub paper: usize,
+    /// The user chose the paper in this dialog, so it no longer follows the printer's default.
+    pub paper_picked: bool,
+    /// The printer whose default paper was last looked up (once per printer, not every frame).
+    pub paper_read_for: Option<String>,
     /// The sheet shown in the preview (0-based).
     pub sheet: usize,
     pub current_page: usize,
@@ -111,6 +115,8 @@ impl Default for PrintDraft {
             cut_marks: true,
             orientation: Orientation::Auto,
             content: Content::DocumentAndMarkups,
+            paper_picked: false,
+            paper_read_for: None,
             paper: 0,
             sheet: 0,
             current_page: 0,
@@ -172,7 +178,11 @@ impl PrintDraft {
             options: match (&self.printer, &self.driver_options) {
                 (Some(p), Some((read_for, _))) if p == read_for => self.driver_choices.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
                 _ => Vec::new(),
-            },
+            }
+            .into_iter()
+            // The sheet the PDF was laid out on, not the queue's default paper.
+            .chain(print::cups_media(self.paper).map(|m| ("media".to_string(), m.to_string())))
+            .collect(),
         }
     }
 }
@@ -257,6 +267,9 @@ impl PdfCraftApp {
             printers,
             printers_loading,
             printer_picked: false,
+            // Each print starts on the printer's own default paper, as system print dialogs do.
+            paper_picked: false,
+            paper_read_for: None,
             units: self.units,
             printer: default,
             current_page: current,
@@ -586,11 +599,12 @@ fn driver_options_panel(ui: &mut egui::Ui, d: &mut PrintDraft, t: &Tokens) {
                 if ui.button(tl!("Done")).clicked() {
                     *show = false;
                 }
-                if ui.add_enabled(!choices.is_empty(), egui::Button::new(tl!("Reset to printer defaults"))).clicked() {
-                    choices.clear();
-                }
             });
         });
+        // A row of its own: in longer translations it would run over the title beside it.
+        if ui.add_enabled(!choices.is_empty(), egui::Button::new(tl!("Reset to printer defaults"))).clicked() {
+            choices.clear();
+        }
         if options.is_empty() {
             ui.label(egui::RichText::new(tl!("This printer offers no settings of its own.")).small().color(t.text_muted));
             return;
@@ -731,12 +745,24 @@ pub(crate) fn body(
                 });
                 ui.end_row();
                 ui.label(tl!("Paper:"));
+                // The printer's default paper (A5 on a queue set up for A5), until one is chosen here.
+                if !d.paper_picked && d.paper_read_for != d.printer {
+                    d.paper_read_for = d.printer.clone();
+                    let listed = d.printer.as_ref().is_some_and(|p| d.printers.iter().any(|q| q.name == *p));
+                    if let Some(paper) = d.printer.as_deref().filter(|_| listed && !browser).and_then(spool::default_paper) {
+                        d.paper = paper;
+                    }
+                }
                 let paper_name = PAPERS.get(d.paper).map_or("US Letter", |p| p.0);
+                let before = d.paper;
                 egui::ComboBox::from_id_salt("paper").selected_text(paper_name).width(260.0).show_ui(ui, |ui| {
                     for (i, (name, _)) in PAPERS.iter().enumerate() {
                         ui.selectable_value(&mut d.paper, i, *name);
                     }
                 });
+                if d.paper != before {
+                    d.paper_picked = true;
+                }
                 ui.end_row();
             });
             // Windows says which drivers can't print two-sided as they're asked; they keep their
@@ -763,6 +789,7 @@ pub(crate) fn body(
                         && let Some(paper) = matched
                     {
                         d.paper = paper;
+                        d.paper_picked = true;
                         d.handling = Handling::Size;
                         d.size = SizeMode::Actual;
                         d.orientation = Orientation::Auto;

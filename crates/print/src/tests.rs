@@ -643,3 +643,25 @@ fn paper_matching_accepts_rounded_metric_sizes_but_not_custom_or_invalid_sizes()
         assert_eq!(matching_paper(size), None);
     }
 }
+
+#[test]
+fn a_printers_default_paper_comes_from_its_media_default_or_its_ppd() {
+    use crate::{PAPERS, spool::default_paper_parsed};
+    let a5 = PAPERS.iter().position(|p| p.0 == "A5").unwrap();
+    let a4 = PAPERS.iter().position(|p| p.0 == "A4").unwrap();
+    let letter = PAPERS.iter().position(|p| p.0 == "US Letter").unwrap();
+    let ppd = "*DefaultPageSize: A5JIS\n*PaperDimension A4JIS/A4: \"595 842\"\n*PaperDimension A5JIS/A5: \"420 595\"\n*PaperDimension Letter: \"612 792\"\n";
+    let listed = "PageSize/Paper Size: A4JIS *A5JIS Letter\nInputSlot/Tray: *Auto";
+    // A PWG self-describing media default wins, in millimetres or inches.
+    assert_eq!(default_paper_parsed("copies=1 media=iso_a4_210x297mm sides=one-sided", listed, Some(ppd)), Some(a4));
+    assert_eq!(default_paper_parsed("media=na_letter_8.5x11in", listed, Some(ppd)), Some(letter));
+    // A PPD size name as the media default is measured from the PPD, or known by name.
+    assert_eq!(default_paper_parsed("media='A4JIS'", listed, Some(ppd)), Some(a4));
+    assert_eq!(default_paper_parsed("media=A5", "", None), Some(a5));
+    // Without one, the PPD's current page size (A5JIS is ISO A5's size).
+    assert_eq!(default_paper_parsed("copies=1", listed, Some(ppd)), Some(a5));
+    // Unknown or unlisted sizes leave the paper as it was.
+    assert_eq!(default_paper_parsed("media=custom_roll_5x900in", "", None), None);
+    assert_eq!(default_paper_parsed("", "PageSize/Paper Size: *Odd", Some(ppd)), None);
+    assert_eq!(default_paper_parsed("", "", None), None);
+}

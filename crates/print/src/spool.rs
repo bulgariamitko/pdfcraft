@@ -62,3 +62,85 @@ pub fn submit(pdf: &[u8], job: &Job) -> Result<String, crate::PrintError> {
 pub fn open_printer_preferences(printer: &str) -> Result<(), crate::PrintError> {
     craft_print::open_printer_preferences(printer).map_err(|e| crate::PrintError::Spool(e.to_string()))
 }
+
+/// The paper a printer uses when a job doesn't say, as a [`crate::PAPERS`] index: on CUPS the
+/// destination's `media` default, else its PPD's page size. `None` when it isn't one of those
+/// papers, can't be read, or on other platforms. Runs `lpoptions`, so call it once per printer,
+/// not every frame.
+pub fn default_paper(printer: &str) -> Option<usize> {
+    #[cfg(all(unix, not(target_arch = "wasm32")))]
+    {
+        let queue = printer.split_once('/').map_or(printer, |(q, _)| q);
+        if queue.is_empty()
+            || queue.len() > 64
+            || matches!(queue, "." | "..")
+            || !queue.bytes().all(|b| b.is_ascii_graphic() && !matches!(b, b'/' | b'\\' | b':'))
+        {
+            return None;
+        }
+        let run = |args: &[&str]| {
+            std::process::Command::new("lpoptions")
+                .args(args)
+                .output()
+                .ok()
+                .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+                .unwrap_or_default()
+        };
+        let defaults = run(&["-p", printer]);
+        let listed = run(&["-p", printer, "-l"]);
+        const PPD_CAP: u64 = 16 << 20;
+        let ppd = std::fs::File::open(std::path::Path::new("/etc/cups/ppd").join(format!("{queue}.ppd"))).ok().and_then(|f| {
+            use std::io::Read as _;
+            let mut bytes = Vec::new();
+            f.take(PPD_CAP).read_to_end(&mut bytes).ok().map(|_| ppd_text(&bytes))
+        });
+        default_paper_parsed(&defaults, &listed, ppd.as_deref())
+    }
+    #[cfg(not(all(unix, not(target_arch = "wasm32"))))]
+    {
+        let _ = printer;
+        None
+    }
+}
+
+/// [`default_paper`] from `lpoptions -p` (`defaults`), `lpoptions -p -l` (`listed`) and the PPD.
+pub fn default_paper_parsed(defaults: &str, listed: &str, ppd: Option<&str>) -> Option<usize> {
+    let media = defaults
+        .split_whitespace()
+        .find_map(|w| w.strip_prefix("media="))
+        .map(|m| m.trim_matches(|c| c == '\'' || c == '"'))
+        .and_then(|m| m.split(',').next())
+        .filter(|m| !m.is_empty());
+    if let Some(paper) =
+        media.and_then(|m| pwg_size(m).or_else(|| ppd.and_then(|p| ppd_dimension(p, m))).or_else(|| named_size(m))).and_then(crate::matching_paper)
+    {
+        return Some(paper);
+    }
+    let page_size = parse_lpoptions(listed).into_iter().find(|(k, _)| k == "PageSize").map(|(_, v)| v)?;
+    ppd.and_then(|p| ppd_dimension(p, &page_size)).or_else(|| named_size(&page_size)).and_then(crate::matching_paper)
+}
+
+/// A PWG self-describing media name's size in points (`iso_a5_148x210mm`, `na_letter_8.5x11in`).
+fn pwg_size(name: &str) -> Option<(f64, f64)> {
+    let dims = name.rsplit('_').next()?;
+    let (dims, per_unit) = if let Some(d) = dims.strip_suffix("mm") { (d, 72.0 / 25.4) } else { (dims.strip_suffix("in")?, 72.0) };
+    let (w, h) = dims.split_once('x')?;
+    let (w, h) = (w.parse::<f64>().ok()? * per_unit, h.parse::<f64>().ok()? * per_unit);
+    (w.is_finite() && h.is_finite() && w > 0.0 && h > 0.0).then_some((w, h))
+}
+
+/// `*PaperDimension name/label: "w h"` in the PPD, in points.
+fn ppd_dimension(ppd: &str, name: &str) -> Option<(f64, f64)> {
+    ppd.lines().find_map(|line| {
+        let rest = line.strip_prefix("*PaperDimension ")?.strip_prefix(name)?;
+        let value = rest.strip_prefix(':').or_else(|| rest.strip_prefix('/').and_then(|r| r.split_once(':').map(|(_, v)| v)))?;
+        let mut n = value.trim().trim_matches('"').split_whitespace().map(|v| v.parse::<f64>().ok());
+        let (w, h) = (n.next()??, n.next()??);
+        (w.is_finite() && h.is_finite() && w > 0.0 && h > 0.0).then_some((w, h))
+    })
+}
+
+/// The sizes [`crate::cups_media`] names, read back.
+fn named_size(name: &str) -> Option<(f64, f64)> {
+    crate::PAPERS.iter().enumerate().find(|(i, _)| crate::cups_media(*i).is_some_and(|m| m.eq_ignore_ascii_case(name))).map(|(_, p)| p.1)
+}

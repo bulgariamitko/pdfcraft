@@ -258,6 +258,20 @@ pub const PAPERS: [(&str, (f64, f64)); 18] = [
     ("A0", (2383.94, 3370.39)),
 ];
 
+/// The CUPS `media` name for a [`PAPERS`] entry, so the printer is asked for the sheet the PDF
+/// was laid out on; `None` for sizes without a standard name.
+pub fn cups_media(index: usize) -> Option<&'static str> {
+    match PAPERS.get(index)?.0 {
+        "US Letter" => Some("Letter"),
+        "US Legal" => Some("Legal"),
+        "Tabloid" => Some("Tabloid"),
+        "A3" => Some("A3"),
+        "A4" => Some("A4"),
+        "A5" => Some("A5"),
+        _ => None,
+    }
+}
+
 /// Match a displayed PDF page to a standard sheet, independent of orientation.
 /// Half a point allows rounded metric PDF dimensions without confusing distinct sizes.
 pub fn matching_paper(size: (f64, f64)) -> Option<usize> {
