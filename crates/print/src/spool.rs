@@ -248,9 +248,11 @@ pub fn printer_options(printer: &str) -> Vec<PrinterOption> {
 /// Whether [`open_printer_preferences`] can show the driver's own settings window (Windows).
 pub const HAS_PRINTER_PREFERENCES: bool = cfg!(windows);
 
-/// Open the printer driver's Printing Preferences window (Windows: `printui.dll`). What the user
-/// sets there is saved as that printer's defaults for this Windows user, which every job starts
-/// from; the Print dialog's copies, two-sided, grayscale and paper still apply on top.
+/// Open the printer driver's Printing Preferences window (Windows: `printui.dll`) and wait until
+/// it is closed. What the user sets there is saved as that printer's defaults for this Windows
+/// user, which every job starts from; the Print dialog's copies, two-sided, grayscale and paper
+/// still apply on top. Blocks, so call it off the UI thread; afterwards [`default_paper`] reads
+/// the paper chosen there.
 pub fn open_printer_preferences(printer: &str) -> Result<(), PrintError> {
     #[cfg(windows)]
     {
@@ -266,7 +268,7 @@ pub fn open_printer_preferences(printer: &str) -> Result<(), PrintError> {
             .raw_arg("/e")
             .raw_arg("/n")
             .raw_arg(format!("\"{printer}\""))
-            .spawn()
+            .status()
             .map(|_| ())
             .map_err(|e| PrintError::Spool(format!("the printer's preferences could not be opened: {e}")))
     }
@@ -275,6 +277,38 @@ pub fn open_printer_preferences(printer: &str) -> Result<(), PrintError> {
         let _ = printer;
         Err(PrintError::Spool("printer preferences open only on Windows; use the printer's options instead".into()))
     }
+}
+
+/// The paper a printer's driver uses when a job doesn't say (Windows: the driver's Printing
+/// Preferences for this user), in points as (width, height). `None` when it can't be read or on
+/// other platforms. Runs `powershell`, and some drivers take seconds to answer: call it off the
+/// UI thread.
+pub fn default_paper(printer: &str) -> Option<(f64, f64)> {
+    #[cfg(windows)]
+    {
+        let out = powershell_command(POWERSHELL_DEFAULT_PAPER).env("PDFCRAFT_PRINT_PRINTER", printer).output().ok()?;
+        if !out.status.success() {
+            return None;
+        }
+        parse_default_paper(&String::from_utf8_lossy(&out.stdout))
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = printer;
+        None
+    }
+}
+
+/// The driver's default paper, `width height` in hundredths of an inch (System.Drawing's unit).
+/// The printer name comes in the environment, as the print script's does.
+#[cfg(windows)]
+const POWERSHELL_DEFAULT_PAPER: &str = "Add-Type -AssemblyName System.Drawing; $s = [System.Drawing.Printing.PrinterSettings]::new(); $s.PrinterName = $env:PDFCRAFT_PRINT_PRINTER; if ($s.IsValid) { $p = $s.DefaultPageSettings.PaperSize; [string]$p.Width + ' ' + [string]$p.Height }";
+
+/// [`default_paper`] from the script's `width height` line (hundredths of an inch).
+pub fn parse_default_paper(out: &str) -> Option<(f64, f64)> {
+    let mut n = out.split_whitespace().map(|v| v.parse::<f64>().ok());
+    let (w, h) = (n.next()??, n.next()??);
+    (w.is_finite() && h.is_finite() && w >= 100.0 && h >= 100.0).then_some((w * 0.72, h * 0.72))
 }
 
 /// `lpstat`, forced to print untranslated messages so [`parse_lpstat`] and [`parse_lpstat_e`] can

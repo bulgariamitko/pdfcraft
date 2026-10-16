@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use super::*;
-use crate::spool::{Duplex, Job, Printer, lp_args, parse_lpstat, parse_windows_printers, windows_env_vars};
+use crate::spool::{Duplex, Job, Printer, lp_args, parse_default_paper, parse_lpstat, parse_windows_printers, windows_env_vars};
 
 /// `n` pages of 200×300 (page 3 is landscape 300×200 when n ≥ 3); page i shows "(Page i+1)".
 /// Page 1 carries a printable square comment, a non-printing note, and a stamp.
@@ -442,6 +442,21 @@ fn the_spoolers_reply_drops_the_file_count_of_a_job_sent_on_stdin() {
         "request id is Office_Laser-13 (1 file(s))"
     );
     assert_eq!(spool::job_message(b""), "");
+}
+
+#[test]
+fn a_drivers_default_paper_is_read_in_hundredths_of_an_inch() {
+    // A4 as System.Drawing gives it (827 × 1169), and a custom size set in the driver.
+    let a4 = parse_default_paper("827 1169\r\n").unwrap();
+    assert!((a4.0 - 595.44).abs() < 0.01 && (a4.1 - 841.68).abs() < 0.01);
+    // Rounded to a hundredth of an inch (0.72 pt), a standard paper still matches to half a point.
+    assert_eq!(crate::matching_paper(a4).map(|i| crate::PAPERS[i].0), Some("A4"));
+    let a5 = parse_default_paper("583 827").unwrap();
+    assert_eq!(crate::matching_paper(a5).map(|i| crate::PAPERS[i].0), Some("A5"));
+    assert_eq!(parse_default_paper("400 600"), Some((288.0, 432.0)));
+    assert_eq!(parse_default_paper(""), None);
+    assert_eq!(parse_default_paper("0 0"), None, "an unreadable driver paper");
+    assert_eq!(parse_default_paper("A4"), None);
 }
 
 #[test]

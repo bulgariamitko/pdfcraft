@@ -109,7 +109,8 @@ if ($env:PDFCRAFT_PRINT_GRAYSCALE -eq '1') { $printer.DefaultPageSettings.Color 
 # The sheets are already laid out at their final size (CUPS gets `fit-to-page=false`), so each
 # one is printed at 100% on paper of its own size and orientation. Before every sheet the driver
 # is asked for that paper — the size closest to the sheet's, within an eighth of an inch, turned
-# either way — and turned landscape for a wide sheet; a driver without that paper keeps its own.
+# either way — and turned landscape for a wide sheet; for a size it doesn't list, a custom paper
+# of the sheet's size (a driver without custom sizes keeps its own paper).
 $paperSizes = @($settings.PaperSizes)
 $script:sheets = 0
 $printer.add_QueryPageSettings({
@@ -131,7 +132,8 @@ $printer.add_QueryPageSettings({
         $off = [Math]::Abs([Math]::Max($paper.Width, $paper.Height) - $long) + [Math]::Abs([Math]::Min($paper.Width, $paper.Height) - $short)
         if ($off -lt $bestOff) { $best = $paper; $bestOff = $off }
     }
-    if ($best) { $e.PageSettings.PaperSize = $best }
+    if (-not $best) { $best = [System.Drawing.Printing.PaperSize]::new('Custom', [int][Math]::Round($short), [int][Math]::Round($long)) }
+    $e.PageSettings.PaperSize = $best
     $e.PageSettings.Landscape = ($w -gt $h)
 })
 

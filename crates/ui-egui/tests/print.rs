@@ -272,18 +272,37 @@ fn architectural_page_can_be_matched_at_100_percent() {
 }
 
 #[test]
-fn custom_page_cannot_silently_match_a_standard_paper() {
+fn a_page_of_no_standard_size_gets_a_custom_paper_of_its_size() {
     let mut h = harness();
     assert!(h.state_mut().execute("print.dialog"));
     h.run_steps(3);
-    // The 300 x 400 pt fixture is not a standard sheet.
+    // The 300 x 400 pt fixture is not a standard sheet: matching it never picks a near one.
     assert!(pdfcraft_engine::print::matching_paper((300.0, 400.0)).is_none());
-    let before = h.state().print_draft.clone();
-    assert!(h.get_by_label("Match page at 100%").accesskit_node().is_disabled());
     h.get_by_label("Match page at 100%").click();
     h.run_steps(3);
-    assert_eq!(h.state().print_draft.paper, before.paper);
-    assert_eq!(h.state().print_draft.size, before.size);
+    h.get_by_value("Custom size");
+    let settings = h.state().print_draft.settings(1, &[]).unwrap();
+    assert_eq!(settings.paper, (300.0, 400.0));
+    assert_eq!(settings.layout, pdfcraft_engine::print::Layout::Size(pdfcraft_engine::print::SizeMode::Actual));
+}
+
+#[test]
+fn a_custom_paper_size_is_typed_in_the_chosen_unit() {
+    let mut h = harness();
+    assert!(h.state_mut().execute("print.dialog"));
+    h.run_steps(3);
+    {
+        let d = &mut h.state_mut().print_draft;
+        d.units = pdfcraft_ui_egui::units::Unit::Millimetres;
+        d.paper = pdfcraft_ui_egui::CUSTOM_PAPER;
+        d.custom_paper = (100.0 / 25.4 * 72.0, 150.0 / 25.4 * 72.0);
+    }
+    h.run_steps(3);
+    h.get_by_value("Custom size");
+    h.get_by_value("100.0 mm");
+    h.get_by_value("150.0 mm");
+    let (w, h_pt) = h.state().print_draft.settings(1, &[]).unwrap().paper;
+    assert!((w - 283.46).abs() < 0.01 && (h_pt - 425.2).abs() < 0.01);
 }
 
 /// A driver Windows reports without two-sided printing keeps its own setting whatever Two-sided

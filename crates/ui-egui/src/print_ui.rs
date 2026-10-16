@@ -67,7 +67,19 @@ pub struct PrintDraft {
     pub cut_marks: bool,
     pub orientation: Orientation,
     pub content: Content,
+    /// A [`PAPERS`] index, or [`CUSTOM_PAPER`] for `custom_paper`.
     pub paper: usize,
+    /// The Custom size paper, in points (width, height).
+    pub custom_paper: (f64, f64),
+    /// The user chose the paper in this dialog, so it no longer follows the printer driver's.
+    pub paper_picked: bool,
+    /// The printer whose driver paper was last asked for (once per printer, not every frame).
+    pub paper_read_for: Option<String>,
+    /// The driver's paper is being read in the background (see [`PrintDraft::paper_reading`]).
+    pub paper_reading: bool,
+    /// Properties… was clicked for this printer (Windows): its preferences window opens off the UI
+    /// thread, and the paper chosen there becomes the dialog's when it closes.
+    pub preferences_for: Option<String>,
     /// The sheet shown in the preview (0-based).
     pub sheet: usize,
     pub current_page: usize,
@@ -112,6 +124,11 @@ impl Default for PrintDraft {
             orientation: Orientation::Auto,
             content: Content::DocumentAndMarkups,
             paper: 0,
+            custom_paper: PAPERS[0].1,
+            paper_picked: false,
+            paper_read_for: None,
+            paper_reading: false,
+            preferences_for: None,
             sheet: 0,
             current_page: 0,
             driver_options: None,
@@ -122,7 +139,26 @@ impl Default for PrintDraft {
     }
 }
 
+/// The Paper list's last entry, after [`PAPERS`]: a size typed in.
+pub const CUSTOM_PAPER: usize = PAPERS.len();
+
 impl PrintDraft {
+    /// The paper's size in points (width, height).
+    pub fn paper_size(&self) -> (f64, f64) {
+        PAPERS.get(self.paper).map_or(self.custom_paper, |p| p.1)
+    }
+
+    /// Choose the paper of this size: the standard one it matches, else Custom size.
+    pub fn set_paper_size(&mut self, size: (f64, f64)) {
+        match print::matching_paper(size) {
+            Some(i) => self.paper = i,
+            None => {
+                self.custom_paper = (size.0.min(size.1), size.0.max(size.1));
+                self.paper = CUSTOM_PAPER;
+            }
+        }
+    }
+
     /// The engine settings for this draft (page count and labels from the document).
     pub fn settings(&self, count: usize, labels: &[String]) -> Result<print::Settings, String> {
         if self.handling == Handling::Multiple && self.order == PageOrder::CutStack && self.duplex != spool::Duplex::Off {
@@ -156,7 +192,7 @@ impl PrintDraft {
             Handling::Booklet => Layout::Booklet { subset: self.booklet_subset, binding: self.binding },
             Handling::Poster => Layout::Poster { scale: self.poster_scale, overlap: self.overlap, cut_marks: self.cut_marks },
         };
-        Ok(print::Settings { pages, paper: PAPERS[self.paper.min(PAPERS.len() - 1)].1, orientation: self.orientation, layout, content: self.content })
+        Ok(print::Settings { pages, paper: self.paper_size(), orientation: self.orientation, layout, content: self.content })
     }
 
     pub fn job(&self, title: &str) -> spool::Job {
@@ -194,7 +230,15 @@ pub(crate) struct PrintTasks {
     printers: Option<std::sync::mpsc::Receiver<Vec<spool::Printer>>>,
     #[cfg(not(target_arch = "wasm32"))]
     jobs: Vec<(String, std::sync::mpsc::Receiver<Result<String, String>>)>,
+    /// The driver paper being read: the printer, whether it follows Properties… (then it replaces
+    /// a paper picked in the dialog), and the answer.
+    #[cfg(not(target_arch = "wasm32"))]
+    paper: Option<(String, bool, std::sync::mpsc::Receiver<DriverPaper>)>,
 }
+
+/// A printer driver's paper in points, or why its preferences window didn't open.
+#[cfg(not(target_arch = "wasm32"))]
+type DriverPaper = Result<Option<(f64, f64)>, String>;
 
 /// The printer the dialog preselects: the system default, else the first.
 fn default_printer(printers: &[spool::Printer]) -> Option<String> {
@@ -228,6 +272,11 @@ impl PdfCraftApp {
             printers,
             printers_loading,
             printer_picked: false,
+            // Each print starts on the printer driver's paper, as system print dialogs do.
+            paper_picked: false,
+            paper_read_for: None,
+            paper_reading: false,
+            preferences_for: None,
             units: self.units,
             printer: default,
             current_page: current,
@@ -278,6 +327,7 @@ impl PdfCraftApp {
                     d.printers_loading = false;
                 }
             }
+            self.poll_driver_paper();
             let mut finished = Vec::new();
             self.print_tasks.jobs.retain(|(printer, rx)| match rx.try_recv() {
                 Ok(r) => {
@@ -294,6 +344,68 @@ impl PdfCraftApp {
                 self.report_print_job(&printer, result);
             }
         }
+    }
+
+    /// Follow the printer driver's paper (Windows): read it for the chosen printer until a paper
+    /// is picked in the dialog, and again when its Printing Preferences close, so a paper set
+    /// there shows here. Reads only with the desktop's background printer list, so tests that
+    /// list printers synchronously stay deterministic.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn poll_driver_paper(&mut self) {
+        if let Some((printer, from_preferences, rx)) = &self.print_tasks.paper {
+            let answer = match rx.try_recv() {
+                Ok(a) => Some(a),
+                Err(std::sync::mpsc::TryRecvError::Empty) => None,
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => Some(Ok(None)),
+            };
+            if let Some(answer) = answer {
+                let d = &mut self.print_draft;
+                let current = d.printer.as_ref() == Some(printer);
+                match answer {
+                    Ok(Some(size)) if current && (*from_preferences || !d.paper_picked) => {
+                        d.set_paper_size(size);
+                        // The driver's paper is the latest choice: the dialog follows it again.
+                        d.paper_picked = false;
+                        d.sheet = 0;
+                    }
+                    Ok(_) => {}
+                    Err(e) => d.driver_error = Some(e),
+                }
+                d.paper_reading = false;
+                self.print_tasks.paper = None;
+            } else {
+                return;
+            }
+        }
+        if !spool::HAS_PRINTER_PREFERENCES || self.printer_source.is_none() || self.dialog != Some(crate::Dialog::Print) {
+            return;
+        }
+        let d = &mut self.print_draft;
+        let (printer, from_preferences) = match d.preferences_for.take() {
+            Some(p) => (p, true),
+            None if !d.paper_picked && d.printer.is_some() && d.paper_read_for != d.printer => match d.printer.clone() {
+                Some(p) => (p, false),
+                None => return,
+            },
+            None => return,
+        };
+        d.paper_read_for = Some(printer.clone());
+        d.paper_reading = true;
+        let (tx, rx) = std::sync::mpsc::channel();
+        let ctx = self.ctx.clone();
+        let name = printer.clone();
+        std::thread::spawn(move || {
+            let answer = if from_preferences {
+                spool::open_printer_preferences(&name).map_err(|e| e.to_string()).map(|()| spool::default_paper(&name))
+            } else {
+                Ok(spool::default_paper(&name))
+            };
+            let _ = tx.send(answer);
+            if let Some(ctx) = ctx {
+                ctx.request_repaint();
+            }
+        });
+        self.print_tasks.paper = Some((printer, from_preferences, rx));
     }
 
     fn report_print_job(&mut self, printer: &str, result: Result<String, String>) {
@@ -572,7 +684,9 @@ pub(crate) fn body(
                         && let Some(p) = d.printer.clone()
                     {
                         if spool::HAS_PRINTER_PREFERENCES {
-                            d.driver_error = spool::open_printer_preferences(&p).err().map(|e| e.to_string());
+                            // Opened off the UI thread; its paper is read back when it closes.
+                            d.driver_error = None;
+                            d.preferences_for = Some(p);
                         } else {
                             if d.driver_options.as_ref().is_none_or(|(read_for, _)| *read_for != p) {
                                 d.driver_options = Some((p.clone(), spool::printer_options(&p)));
@@ -609,13 +723,54 @@ pub(crate) fn body(
                 );
                 ui.end_row();
                 ui.label(tl!("Paper:"));
-                let paper_name = PAPERS.get(d.paper).map_or("US Letter", |p| p.0);
-                egui::ComboBox::from_id_salt("paper").selected_text(paper_name).width(260.0).show_ui(ui, |ui| {
-                    for (i, (name, _)) in PAPERS.iter().enumerate() {
-                        ui.selectable_value(&mut d.paper, i, *name);
+                let before = (d.paper, d.custom_paper);
+                ui.horizontal(|ui| {
+                    let paper_name = PAPERS.get(d.paper).map_or(tl!("Custom size"), |p| p.0);
+                    egui::ComboBox::from_id_salt("paper").selected_text(paper_name).width(260.0).show_ui(ui, |ui| {
+                        for (i, (name, _)) in PAPERS.iter().enumerate() {
+                            ui.selectable_value(&mut d.paper, i, *name);
+                        }
+                        // Starts from the paper chosen before, to be changed from there.
+                        if ui.selectable_label(d.paper == CUSTOM_PAPER, tl!("Custom size")).clicked() && d.paper != CUSTOM_PAPER {
+                            let (w, h) = d.paper_size();
+                            d.custom_paper = (w.min(h), w.max(h));
+                            d.paper = CUSTOM_PAPER;
+                        }
+                    });
+                    if d.paper_reading {
+                        ui.add(egui::Spinner::new().size(12.0)).on_hover_text(tl!("Reading the printer's paper…"));
                     }
                 });
                 ui.end_row();
+                if d.paper == CUSTOM_PAPER {
+                    ui.label("");
+                    ui.horizontal(|ui| {
+                        let (units, k) = (d.units, d.units.per_point());
+                        // From an inch (the engine's smallest sheet) to 5 m (a long banner roll).
+                        let field = |ui: &mut egui::Ui, v: &mut f64| {
+                            ui.add(
+                                egui::DragValue::new(v)
+                                    .range(72.0 * k..=14_173.0 * k)
+                                    .speed(units.speed())
+                                    .fixed_decimals(units.decimals())
+                                    .suffix(format!(" {}", units.label())),
+                            )
+                        };
+                        let (mut w, mut h) = (d.custom_paper.0 * k, d.custom_paper.1 * k);
+                        ui.label(tl!("Width:"));
+                        let rw = field(ui, &mut w);
+                        ui.label(tl!("Height:"));
+                        let rh = field(ui, &mut h);
+                        if rw.changed() || rh.changed() {
+                            d.custom_paper = (w / k, h / k);
+                        }
+                    });
+                    ui.end_row();
+                }
+                if (d.paper, d.custom_paper) != before {
+                    d.paper_picked = true;
+                    d.sheet = 0;
+                }
             });
             // Windows says which drivers can't print two-sided as they're asked; they keep their
             // own setting, even when Two-sided is Off.
@@ -633,11 +788,10 @@ pub(crate) fn body(
             if let Some(&source) = sizes.get(d.current_page) {
                 ui.horizontal_wrapped(|ui| {
                     ui.label(crate::i18n::fmt(tl!("PDF page: {size}"), &[("size", &d.units.size(source.0, source.1))]));
-                    let matched = print::matching_paper(source);
-                    if ui.add_enabled(matched.is_some(), egui::Button::new(tl!("Match page at 100%"))).clicked()
-                        && let Some(paper) = matched
-                    {
-                        d.paper = paper;
+                    // A page of no standard size gets a Custom size paper of its own size.
+                    if ui.button(tl!("Match page at 100%")).clicked() {
+                        d.set_paper_size(source);
+                        d.paper_picked = true;
                         d.handling = Handling::Size;
                         d.size = SizeMode::Actual;
                         d.orientation = Orientation::Auto;

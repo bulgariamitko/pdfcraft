@@ -2185,6 +2185,8 @@ key	Space	Интервал
 # Architectural print controls (follow-up to #599).
 	PDF page: {size}	PDF страница: {size}
 	Match page at 100%	Хартия по страницата, мащаб 100%
+	Custom size	Потребителски размер
+	Reading the printer's paper…	Четене на хартията от принтера…
 	PDF scale: {scale}%	Мащаб на PDF: {scale}%
 	Printer paper and scaling may differ. Check driver settings.	Хартията и мащабът на принтера може да се различават. Проверете настройките на драйвера.
 	Drawing scale changes. Use Actual size for full-scale plans.	Мащабът на чертежа се променя. Използвайте Действителен размер за планове в оригинален мащаб.
