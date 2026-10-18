@@ -487,6 +487,21 @@ fn the_windows_print_script_binds_long_edge_on_the_long_edge() {
 }
 
 #[test]
+fn the_windows_print_script_passes_postscript_through_in_the_documents_colours() {
+    // A PostScript driver gets each sheet as Ghostscript's EPS (CMYK as in the document, not a
+    // bitmap's RGB), wrapped so the driver's own dictionaries are set aside while it runs.
+    let script = include_str!("windows_print.ps1").replace("\r\n", "\n");
+    assert!(script.contains("POSTSCRIPT_PASSTHROUGH = 4115"));
+    assert!(script.contains("'-sDEVICE=eps2write'"));
+    assert!(script.contains("countdictstack PdfCraftBase sub {end} repeat userdict begin /showpage {} def"));
+    assert!(script.contains("PdfCraftStack PdfCraftBase 1 index length PdfCraftBase sub getinterval {begin} forall PdfCraftSheet restore"));
+    // Decimals in the placement are the invariant culture's: a Bulgarian Windows writes commas.
+    assert!(script.contains("[string]::Format($invariant,"));
+    // One sheet stays a list of one file, not the file name's letters.
+    assert!(script.contains("$files = @(1..$document.PageCount"));
+}
+
+#[test]
 fn the_windows_job_is_the_environment_of_the_print_script() {
     let path = std::path::Path::new("C:\\Users\\me\\AppData\\Local\\Temp\\pdfcraft-print-42.pdf");
     let job = Job {
