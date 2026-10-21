@@ -51,6 +51,9 @@ objc2-foundation = { version = "0.3", default-features = false, features = ["std
 # A plain fsync where a volume refuses the full flush `sync_all` asks for (SMB, FUSE); already in
 # the tree through pdfcraft-cli.
 rustix = { version = "1", features = ["fs"] }
+# `write_atomically`: clear the hidden flag an SMB volume gives the dot-named staging file. rustix
+# has no `chflags`, and calling libc directly needs unsafe; nix is the safe wrapper.
+nix = { version = "0.30", default-features = false, features = ["fs"] }
 
 [target.'cfg(windows)'.dependencies]
 # Auto interface language: the Windows display language, without starting a process.
